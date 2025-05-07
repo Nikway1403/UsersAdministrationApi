@@ -1,0 +1,9 @@
+.idea/
+bin/
+obj/
+*.cache
+*.nuget
+*.g.props
+*.g.targets
+*.dg.psec.json
+*.vs/
