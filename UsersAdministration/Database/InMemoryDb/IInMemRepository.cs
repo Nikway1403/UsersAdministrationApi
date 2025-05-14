@@ -4,13 +4,13 @@ namespace UsersAdministration.Database.InMemoryDb;
 
 public interface IInMemRepository
 {
-    public void CreateUser(User newUser);
+    Task CreateUser(User newUser);
 
-    public IEnumerable<User> GetAllUsers();
+    Task<IEnumerable<User>> GetAllUsers();
 
-    public User? GetUserByLogin(string login);
+    Task<User?> GetUserByLogin(string login);
 
-    public void Update(User user);
+    Task Update(User user);
 
-    public bool Remove(string login);
+    Task<bool> Remove(string login);
 }

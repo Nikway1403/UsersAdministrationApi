@@ -1,6 +1,11 @@
 using System.Text.RegularExpressions;
 using UsersAdministration.Database.InMemoryDb;
 using UsersAdministration.Dtos.UserDtos;
+using UsersAdministration.Dtos.UserDtos.DeleteDtos;
+using UsersAdministration.Dtos.UserDtos.GetDtos;
+using UsersAdministration.Dtos.UserDtos.ReturnDtos;
+using UsersAdministration.Dtos.UserDtos.UpdateDtos;
+using UsersAdministration.Exceptions;
 using UsersAdministration.Models;
 
 namespace UsersAdministration.Services.Users;
@@ -14,13 +19,15 @@ public class UserService : IUserService
         _inMemRepository = inMemRepository;
     }
 
-    public bool CreateUser(UserCreationDto dto, string createdBy)
-    {
-        if (!IsValidLogin(dto.Login) 
-            || !IsValidPassword(dto.Password) 
-            || !IsValidName(dto.Name)
-            || !IsUserUnique(dto.Login))
-            return false;
+    public async Task CreateUser(UserCreationDto dto, string createdBy)
+    { 
+        IsValidLogin(dto.Login);
+        IsValidPassword(dto.Password);
+        IsValidName(dto.Name);
+        await IsUserUnique(dto.Login);
+
+        if (!(await IsUserAdmin(createdBy)) && dto.IsAdmin)
+            throw new ForbiddenException("Not admin to make admins");
         
         User user = new User
         {
@@ -35,173 +42,208 @@ public class UserService : IUserService
             CreatedOn = DateTime.UtcNow
         };
         
-        //TODO
-        _inMemRepository.CreateUser(user);
-        return true;
+        await _inMemRepository.CreateUser(user);
     }
     
-    public bool UpdateName(string login, string newName, string modifiedBy)
+    public async Task UpdateName(UserUpdateNameDto dto, string modifiedBy)
     {
-        if (!IsValidName(newName)) return false;
+        IsValidName(dto.NewName);
 
-        User? user = GetModifiableUser(login, modifiedBy);
-        if (user == null) return false;
+        User? user = await GetModifiableUser(dto.UserLogin, modifiedBy);
+        if (user == null) throw new NotFoundException("user not found");
 
-        user.Name = newName;
+        user.Name = dto.NewName;
         ApplyModification(user, modifiedBy);
 
-        _inMemRepository.Update(user);
-        return true;
+        await _inMemRepository.Update(user);
     }
     
-    public bool UpdateBirthday(string login, DateTime? newBirthday, string modifiedBy)
+    public async Task UpdateBirthday(UserUpdateBirthdayDto dto, string modifiedBy)
     {
-        User? user = GetModifiableUser(login, modifiedBy);
-        if (user == null) return false;
+        User? user = await GetModifiableUser(dto.UserLogin, modifiedBy);
+        if (user == null) throw new NotFoundException("user not found");
 
-        user.Birthday = newBirthday;
+        user.Birthday = dto.NewDate;
         ApplyModification(user, modifiedBy);
 
-        _inMemRepository.Update(user);
-        return true;
+        await _inMemRepository.Update(user);
+    }
+
+    public async Task UpdateGender(UserUpdateGenderDto dto, string modifiedBy)
+    {
+        IsGenderValid(dto.NewGender);
+        User? user = await GetModifiableUser(dto.UserLogin, modifiedBy);
+
+        if (user == null) throw new NotFoundException("user not found");
+
+        user.Gender = dto.NewGender;
+        ApplyModification(user, modifiedBy);
+        
+        await _inMemRepository.Update(user);
     }
     
-    public bool UpdatePassword(string login, string newPassword, string modifiedBy)
+    public async Task UpdatePassword(UserUpdatePasswordDto dto, string modifiedBy)
     {
-        if (!IsValidPassword(newPassword)) return false;
+        IsValidPassword(dto.NewPassword);
 
-        var user = GetModifiableUser(login, modifiedBy);
-        if (user == null) return false;
+        User? user = await GetModifiableUser(dto.UserLogin, modifiedBy);
+        if (user == null) throw new NotFoundException("user not found");
 
-        user.Password = newPassword;
+        user.Password = dto.NewPassword;
         ApplyModification(user, modifiedBy);
 
-        _inMemRepository.Update(user);
-        return true;
+        await _inMemRepository.Update(user);
     }
     
-    public bool UpdateLogin(string oldLogin, string newLogin, string modifiedBy)
+    public async Task UpdateLogin(UserUpdateLoginDto dto, string modifiedBy)
     {
-        //TODO
-        if (!IsValidLogin(newLogin) || !IsUserUnique(newLogin)) return false;
+        IsValidLogin(dto.NewLogin);
+        await IsUserUnique(dto.NewLogin);
 
-        var user = GetModifiableUser(oldLogin, modifiedBy);
-        if (user == null) return false;
+        User? user = await GetModifiableUser(dto.UserOldLogin, modifiedBy);
+        if (user == null) throw new NotFoundException("user not found");
 
-        user.Login = newLogin;
+        user.Login = dto.NewLogin;
         ApplyModification(user, modifiedBy);
 
-        _inMemRepository.Update(user);
-        return true;
+        await _inMemRepository.Update(user);
     }
     
-    public IEnumerable<User> GetActiveUsers()
+    public async Task<IEnumerable<User>> GetActiveUsers(string adminLogin)
     {
-        return _inMemRepository
-            .GetAllUsers()
-            .Where(u => u.RevokedOn == null);
+        await EnsureUserAdmin(adminLogin);
+        IEnumerable<User> result = await _inMemRepository.GetAllUsers();
+            result = result.Where(u => u.RevokedOn == null)
+            .OrderBy(u => u.CreatedOn);
+
+        return result;
     }
     
-    public User? GetUserByLogin(string login)
+    public async Task<UserReturnDto> GetUserByLogin(string userLogin, string adminLogin)
     {
-        User? user = _inMemRepository.GetUserByLogin(login);
-        return user?.RevokedOn == null ? user : null;
+        await EnsureUserAdmin(adminLogin);
+        User? user = await _inMemRepository.GetUserByLogin(userLogin);
+        if (user == null || user.RevokedOn != null)
+            throw new NotFoundException("Bad user");
+        UserReturnDto result = new UserReturnDto
+        {
+            Name = user.Name,
+            Gender = user.Gender,
+            Birthday = user.Birthday,
+            Active = user.RevokedOn == null,
+        };
+        
+        return result;
     }
     
-    public User? GetUserByLoginAndPassword(string login, string password)
+    public async Task<User> GetUserByLoginAndPassword(UserGetByPasswordDto dto)
     {
-        //TODO
-        User? user = _inMemRepository.GetUserByLogin(login);
-        return (user != null && user.RevokedOn == null && user.Password == password) ? user : null;
+        User? user = await _inMemRepository.GetUserByLogin(dto.Login);
+        if (user == null || user.RevokedOn != null)
+            throw new NotFoundException("Bad user");
+
+        if (user.Password != dto.Password)
+            throw new ForbiddenException("wrong password");
+
+        return user;
     }
     
-    public IEnumerable<User> GetUsersOlderThan(int age)
+    public async Task<IEnumerable<User>> GetUsersOlderThan(int age, string adminLogin)
     {
         DateTime today = DateTime.UtcNow;
-        return GetActiveUsers()
+
+        IEnumerable<User> activeUsers = await _inMemRepository.GetAllUsers();
+        activeUsers = activeUsers.Where(u => u.RevokedOn == null);
+        IEnumerable<User> result = activeUsers
             .Where(u => u.Birthday.HasValue && (today.Year - u.Birthday.Value.Year) > age);
+
+        return result;
     }
     
-    public bool SoftDeleteUser(string login, string deletedBy)
-    {
-        User? user = _inMemRepository.GetUserByLogin(login);
-        User? by = _inMemRepository.GetUserByLogin(deletedBy);
+    public async Task SoftDeleteUser(UserDeleteDto dto, string deletedBy)
+    { 
+        await EnsureUserAdmin(deletedBy);
+        
+        User? user = await _inMemRepository.GetUserByLogin(dto.UserLogin);
 
-        if (user == null || user.RevokedOn != null || by == null || by.RevokedOn != null)
-            return false;
+        if (user == null || user.RevokedOn != null)
+            throw new NotFoundException("User not found or already deleted");
 
         user.RevokedOn = DateTime.UtcNow;
         user.RevokedBy = deletedBy;
         ApplyModification(user, deletedBy);
 
-        _inMemRepository.Update(user);
-        return true;
+        await _inMemRepository.Update(user);
     }
     
-    public bool HardDeleteUser(string login)
+    public async Task HardDeleteUser(UserDeleteDto dto, string adminLogin)
     {
-        //TODO
-        return _inMemRepository.Remove(login);
+        await EnsureUserAdmin(adminLogin);
+        
+        await _inMemRepository.Remove(dto.UserLogin);
     }
     
-    public bool RestoreUser(string login, string adminLogin)
+    public async Task RestoreUser(UserDeleteDto dto, string adminLogin)
     {
-        User? admin = _inMemRepository.GetUserByLogin(adminLogin);
-        User? user = _inMemRepository.GetUserByLogin(login);
+        User? user = await _inMemRepository.GetUserByLogin(dto.UserLogin);
 
-        if (admin == null || !admin.IsAdmin || admin.RevokedOn != null || user == null || user.RevokedOn == null)
-            return false;
+        await EnsureUserAdmin(adminLogin);
+        if (user == null
+            || user.RevokedOn == null)
+            throw new NotFoundException("User not found or did not delete");
 
         user.RevokedOn = null;
         user.RevokedBy = null;
         ApplyModification(user, adminLogin);
 
-        _inMemRepository.Update(user);
-        return true;
+        await _inMemRepository.Update(user);
     }
     
-    
-    
-    
-    
-    
-    
-    private bool IsUserUnique(string login)
+    private async Task IsUserUnique(string login)
     {
-        if (_inMemRepository
-                .GetAllUsers()
+        IEnumerable<User> users = await _inMemRepository
+            .GetAllUsers();
+        if (users
                 .FirstOrDefault(u => u.Login == login) != null)
-            return false;
+            throw new ValidationException("Login not unique");
         
-        return true;
     }
     
-    private bool IsValidLogin(string login)
+    private void IsValidLogin(string login)
     {
-        return Regex.IsMatch(login, "^[a-zA-Z0-9]+$");
+        if (!Regex.IsMatch(login, "^[a-zA-Z0-9]+$"))
+            throw new ValidationException("login not valid");
     }
 
-    private bool IsValidPassword(string password)
+    private void IsValidPassword(string password)
     {
-        return Regex.IsMatch(password, "^[a-zA-Z0-9]+$");
+        if (!Regex.IsMatch(password, "^[a-zA-Z0-9]+$"))
+            throw new ValidationException("password not valid");
     }
 
-    private bool IsValidName(string name)
+    private void IsValidName(string name)
     {
-        return Regex.IsMatch(name, "^[a-zA-Zа-яА-ЯёЁ]+$");
+        if (!Regex.IsMatch(name, "^[a-zA-Zа-яА-ЯёЁ]+$"))
+            throw new ValidationException("Name not valid");
+    }
+
+    private void IsGenderValid(int gender)
+    {
+        if (gender > 2 || gender < 0) 
+            throw new ValidationException("wrong gender");
     }
     
-    private User? GetModifiableUser(string login, string modifiedBy)
+    private async Task<User?> GetModifiableUser(string login, string modifiedBy)
     {
         
-        User? user = _inMemRepository.GetUserByLogin(login);
-        User? actor = _inMemRepository.GetUserByLogin(modifiedBy);
+        User? user = await _inMemRepository.GetUserByLogin(login);
+        User? actor = await _inMemRepository.GetUserByLogin(modifiedBy);
 
-        if (login != modifiedBy || !actor.IsAdmin)
-            return null;
+        if (login != modifiedBy && !actor.IsAdmin)
+            throw new ForbiddenException("Not admin");
 
         if (user == null || actor == null || user.RevokedOn != null || actor.RevokedOn != null)
-            return null;
+            throw new NotFoundException("User not found or deleted");
 
         return user;
     }
@@ -210,5 +252,20 @@ public class UserService : IUserService
     {
         user.ModifiedBy = modifiedBy;
         user.ModifiedOn = DateTime.UtcNow;
+    }
+
+    private async Task EnsureUserAdmin(string login)
+    {
+        User? user = await _inMemRepository.GetUserByLogin(login);
+        if (user is null || !user.IsAdmin || user.RevokedOn != null) 
+            throw new ForbiddenException("Not admin");
+    }
+
+    private async Task<bool> IsUserAdmin(string login)
+    {
+        User? user = await _inMemRepository.GetUserByLogin(login);
+        if (user is null) throw new NotFoundException("no user");
+
+        return user.IsAdmin;
     }
 }

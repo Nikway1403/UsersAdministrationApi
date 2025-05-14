@@ -1,31 +1,37 @@
 using UsersAdministration.Dtos.UserDtos;
+using UsersAdministration.Dtos.UserDtos.DeleteDtos;
+using UsersAdministration.Dtos.UserDtos.GetDtos;
+using UsersAdministration.Dtos.UserDtos.ReturnDtos;
+using UsersAdministration.Dtos.UserDtos.UpdateDtos;
 using UsersAdministration.Models;
 
 namespace UsersAdministration.Services.Users;
 
 public interface IUserService
 {
-    bool CreateUser(UserCreationDto dto, string createdBy);
+    Task CreateUser(UserCreationDto dto, string createdBy);
 
-    bool UpdateName(string login, string newName, string modifiedBy);
+    Task UpdateName(UserUpdateNameDto dto, string modifiedBy);
 
-    bool UpdateBirthday(string login, DateTime? newBirthday, string modifiedBy);
+    Task UpdateBirthday(UserUpdateBirthdayDto dto, string modifiedBy);
 
-    bool UpdatePassword(string login, string newPassword, string modifiedBy);
+    Task UpdateGender(UserUpdateGenderDto dto, string modifiedBy);
 
-    bool UpdateLogin(string oldLogin, string newLogin, string modifiedBy);
+    Task UpdatePassword(UserUpdatePasswordDto dto, string modifiedBy);
 
-    IEnumerable<User> GetActiveUsers();
+    Task UpdateLogin(UserUpdateLoginDto dto, string modifiedBy);
 
-    User? GetUserByLogin(string login);
+    Task<IEnumerable<User>> GetActiveUsers(string adminLogin);
 
-    User? GetUserByLoginAndPassword(string login, string password);
+    Task<UserReturnDto> GetUserByLogin(string userLogin, string adminLogin);
 
-    IEnumerable<User> GetUsersOlderThan(int age);
+    Task<User> GetUserByLoginAndPassword(UserGetByPasswordDto dto);
 
-    bool SoftDeleteUser(string login, string deletedBy);
+    Task<IEnumerable<User>> GetUsersOlderThan(int age, string adminLogin);
 
-    bool HardDeleteUser(string login);
+    Task SoftDeleteUser(UserDeleteDto dto, string deletedBy);
 
-    bool RestoreUser(string login, string adminLogin);
+    Task HardDeleteUser(UserDeleteDto dto, string adminLogin);
+
+    Task RestoreUser(UserDeleteDto dto, string adminLogin);
 }

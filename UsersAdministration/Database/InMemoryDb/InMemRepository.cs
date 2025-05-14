@@ -6,34 +6,36 @@ public class InMemRepository : IInMemRepository
 {
     private readonly List<User> _users = new List<User>();
 
-    public void CreateUser(User newUser)
+    public Task CreateUser(User newUser)
     {
         _users.Add(newUser);
+        return Task.CompletedTask;
     }
 
-    public IEnumerable<User> GetAllUsers()
+    public Task<IEnumerable<User>> GetAllUsers()
     {
-        return _users;
+        return Task.FromResult(_users.AsEnumerable());
     }
 
-    public User? GetUserByLogin(string login)
+    public Task<User?> GetUserByLogin(string login)
     {
-        return _users.FirstOrDefault(u => u.Login == login);
+        return Task.FromResult(_users.FirstOrDefault(u => u.Login == login));
     }
 
-    public void Update(User user)
+    public Task Update(User user)
     {
         int i = _users.FindIndex(u => u.Login == user.Login);
         _users[i] = user;
+        return Task.CompletedTask;
     }
 
-    public bool Remove(string login)
+    public Task<bool> Remove(string login)
     {
         User? user = _users.FirstOrDefault(u => u.Login == login);
 
         if (user is null)
-            return false;
+            return Task.FromResult(false);
         _users.Remove(user);
-        return true;
+        return Task.FromResult(true);
     }
 }

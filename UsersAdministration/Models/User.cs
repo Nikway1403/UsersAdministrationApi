@@ -14,9 +14,9 @@ public class User
 
     public DateTime? Birthday { get; set; }
 
-    public bool IsAdmin { get; set; }
+    public bool IsAdmin { get; init; }
 
-    public DateTime CreatedOn { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedOn { get; init; } = DateTime.UtcNow;
 
     public required string CreatedBy { get; set; }
     
